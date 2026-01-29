@@ -1,127 +1,166 @@
-<p align="center">
-<img src="./images/boss-bridge.png" width="400" alt="puppy-raffle">
-<br/>
+# L1 Boss Bridge – Security Audit Findings 🛡️
 
-# Boss Bridge
+This repository documents my security review and vulnerability findings for the **L1 Boss Bridge** system.  
+The audit focuses on identifying **critical attack vectors, design flaws, and protocol-level risks** that could lead to loss of funds, replay attacks, infinite minting, or denial of service.
 
-This project presents a simple bridge mechanism to move our ERC20 token from L1 to an L2 we're building.
-The L2 part of the bridge is still under construction, so we don't include it here.
+---
 
-In a nutshell, the bridge allows users to deposit tokens, which are held into a secure vault on L1. Successful deposits trigger an event that our off-chain mechanism picks up, parses it and mints the corresponding tokens on L2.
+## 👨‍💻 Auditor
 
-To ensure user safety, this first version of the bridge has a few security mechanisms in place:
+**Vivek Sharma**
 
-- The owner of the bridge can pause operations in emergency situations.
-- Because deposits are permissionless, there's an strict limit of tokens that can be deposited.
-- Withdrawals must be approved by a bridge operator.
+- 🐦 X (Twitter): https://x.com/viveksh0062  
+- 💼 LinkedIn: https://www.linkedin.com/in/vivek-sharma-679606360/  
 
-We plan on launching `L1BossBridge` on both Ethereum Mainnet and ZKSync. 
+---
 
-## Token Compatibility
+## 📌 Scope
 
-For the moment, assume *only* the `L1Token.sol` or copies of it will be used as tokens for the bridge. This means all other ERC20s and their [weirdness](https://github.com/d-xo/weird-erc20) is considered out-of-scope. 
+The review primarily covers the following contracts:
 
-## On withdrawals
+- `L1BossBridge.sol`
+- `L1Vault.sol`
+- `TokenFactory.sol`
 
-The bridge operator is in charge of signing withdrawal requests submitted by users. These will be submitted on the L2 component of the bridge, not included here. Our service will validate the payloads submitted by users, checking that the account submitting the withdrawal has first originated a successful deposit in the L1 part of the bridge.
+---
 
+## 🚨 High Severity Findings
 
-# Getting Started
+### [H-1] Users who approve tokens to `L1BossBridge` may have assets stolen
 
-## Requirements
+The `depositTokensToL2` function allows anyone to specify an arbitrary `from` address.  
+Any account that has approved tokens to the bridge can have its tokens transferred without consent.
 
-- [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
-  - You'll know you did it right if you can run `git --version` and you see a response like `git version x.x.x`
-- [foundry](https://getfoundry.sh/)
-  - You'll know you did it right if you can run `forge --version` and you see a response like `forge 0.2.0 (816e00b 2023-03-16T00:05:26.396218Z)`
+**Impact:**  
+An attacker can drain tokens from any approved user and mint them to an attacker-controlled L2 address.
 
-## Quickstart
+**Recommended Fix:**  
+Restrict deposits so tokens are transferred only from `msg.sender`.
 
-```
-git clone https://github.com/Cyfrin/7-boss-bridge-audit
-cd 7-boss-bridge-audit
-make
-```
+---
 
-or
+### [H-2] Infinite minting by transferring tokens from Vault to Vault
 
-```
-git clone https://github.com/Cyfrin/7-boss-bridge-audit
-cd 7-boss-bridge-audit
-forge install
-forge build
-```
+Because the vault grants infinite approval to the bridge, attackers can self-transfer tokens from the vault to itself and emit unlimited `Deposit` events.
 
-# Usage
+**Impact:**  
+Unbacked tokens can be minted infinitely on L2.
 
-## Testing
+**Recommended Fix:**  
+Prevent arbitrary `from` address usage in `depositTokensToL2`.
 
-```
-forge test
-```
+---
 
-## Test Coverage
+### [H-3] Lack of replay protection enables withdrawal replay attacks
 
-```
-forge coverage
-```
+Withdrawal signatures lack nonces or unique identifiers.
 
-and for coverage based testing:
+**Impact:**  
+A single valid operator signature can be replayed to drain the entire vault.
 
-```
-forge coverage --report debug
-```
+**Recommended Fix:**  
+Introduce nonces or one-time message tracking for withdrawals.
 
-## Static Analysis
+---
 
-### Slither
-```
-make slither
-```
+### [H-4] Arbitrary calls via `sendToL1` allow vault takeover
 
-### Aderyn
+`sendToL1` allows arbitrary low-level calls with no target or calldata restrictions.
 
-```
-make aderyn
-```
+**Impact:**  
+Attackers can call `L1Vault::approveTo` and grant themselves infinite allowance, draining the vault.
 
+**Recommended Fix:**  
+Disallow arbitrary calls to sensitive contracts like `L1Vault`.
 
-## Audit Scope Details
+---
 
-- Commit Hash: 07af21653ab3e8a8362bf5f63eb058047f562375
-- In scope
+### [H-5] `CREATE` opcode incompatibility with zkSync Era
 
-```
-./src/
-#-- L1BossBridge.sol
-#-- L1Token.sol
-#-- L1Vault.sol
-#-- TokenFactory.sol
-```
-- Solc Version: 0.8.20
-- Chain(s) to deploy contracts to:
-  - Ethereum Mainnet: 
-    - L1BossBridge.sol
-    - L1Token.sol
-    - L1Vault.sol
-    - TokenFactory.sol
-  - ZKSync Era:
-    - TokenFactory.sol
-  - Tokens:
-    - L1Token.sol (And copies, with different names & initial supplies)
+**Impact:**  
+Token deployment may fail or behave unexpectedly on zkSync Era.
 
-## Actors/Roles
+---
 
-- Bridge Owner: A centralized bridge owner who can:
-  - pause/unpause the bridge in the event of an emergency
-  - set `Signers` (see below)
-- Signer: Users who can "send" a token from L2 -> L1. 
-- Vault: The contract owned by the bridge that holds the tokens. 
-- Users: Users mainly only call `depositTokensToL2`, when they want to send tokens from L1 -> L2. 
+### [H-6] Deposit limit check can cause permanent DoS
 
-## Known Issues
+Improper `DEPOSIT_LIMIT` logic may permanently block deposits.
 
-- We are aware the bridge is centralized and owned by a single user, aka it is centralized. 
-- We are missing some zero address checks/input validation intentionally to save gas. 
-- We have magic numbers defined as literals that should be constants. 
-- Assume the `deployToken` will always correctly have an L1Token.sol copy, and not some [weird erc20](https://github.com/d-xo/weird-erc20)
+---
+
+### [H-7] Withdrawal amount not validated against deposit amount
+
+Attackers may withdraw more tokens than they deposited.
+
+---
+
+### [H-8] Tokens deployed via `TokenFactory::deployToken` are permanently locked
+
+Tokens become inaccessible after deployment.
+
+---
+
+## ⚠️ Medium Severity Findings
+
+### [M-1] Withdrawals vulnerable to return-bomb gas griefing
+
+Low-level calls forward all gas and copy returndata.
+
+**Impact:**  
+Malicious targets can force excessive gas usage.
+
+**Recommended Fix:**  
+Use safe-call patterns such as `ExcessivelySafeCall`.
+
+---
+
+## 🟡 Low Severity Findings
+
+### [L-1] Missing withdrawal event emissions
+
+No events are emitted for withdrawals.
+
+**Impact:**  
+Off-chain monitoring and alerting becomes difficult.
+
+---
+
+### [L-2] Duplicate token symbols allowed
+
+Multiple tokens can be deployed with the same symbol.
+
+---
+
+### [L-3] Unsupported opcode `PUSH0`
+
+Potential incompatibility with certain EVM environments.
+
+---
+
+## ℹ️ Informational Findings
+
+### [I-1] Insufficient test coverage
+
+```text
+Total Coverage:
+- Lines: 85%
+- Statements: 88%
+- Branches: 83%
+- Functions: 77%
+Recommendation:
+Increase coverage above 90% across all contracts, especially L1Vault.sol.
+
+✅ Conclusion
+The L1 Boss Bridge contains multiple critical vulnerabilities that could lead to:
+
+Complete vault drainage
+
+Infinite minting of unbacked tokens
+
+Replay-based fund extraction
+
+Privilege escalation via arbitrary calls
+
+These issues should be addressed before any production deployment.
+
+🧠 If you’re interested in Web3 security reviews, protocol auditing, or exploit research — feel free to connect.
