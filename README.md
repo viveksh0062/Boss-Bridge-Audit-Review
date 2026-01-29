@@ -137,19 +137,6 @@ Potential incompatibility with certain EVM environments.
 
 ---
 
-## ℹ️ Informational Findings
-
-### [I-1] Insufficient test coverage
-
-```text
-Total Coverage:
-- Lines: 85%
-- Statements: 88%
-- Branches: 83%
-- Functions: 77%
-Recommendation:
-Increase coverage above 90% across all contracts, especially L1Vault.sol.
-
 
 
 ### Conclusion
