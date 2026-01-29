@@ -152,7 +152,7 @@ Increase coverage above 90% across all contracts, especially L1Vault.sol.
 
 
 
-✅ Conclusion
+### Conclusion
 The L1 Boss Bridge contains multiple critical vulnerabilities that could lead to:
 
 Complete vault drainage
