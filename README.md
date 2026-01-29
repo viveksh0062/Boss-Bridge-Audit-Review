@@ -150,6 +150,8 @@ Total Coverage:
 Recommendation:
 Increase coverage above 90% across all contracts, especially L1Vault.sol.
 
+
+
 ✅ Conclusion
 The L1 Boss Bridge contains multiple critical vulnerabilities that could lead to:
 
